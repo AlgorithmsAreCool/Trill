@@ -267,5 +267,39 @@ namespace Microsoft.StreamProcessing
                     yield return keyAndCount.Key;
             }
         }
+
+        /// <summary>
+        /// Get all unique elements, including multiplicity, of the Sorted Multiset in sort order.
+        /// </summary>
+        /// <returns>An object that enumerates all of the elements in the Sorted Multiset, including multiplicity.</returns>
+        [EditorBrowsable(EditorBrowsableState.Never)]
+        public ItemAndCount<T> GetMinItem()
+        {
+            var minItem = this.Elements.FirstOrDefault();
+            return new ItemAndCount<T>(minItem.Key, minItem.Value);
+        }
+    }
+
+    /// <summary>
+    /// Represents an Item and its count used in MultiSet
+    /// </summary>
+    /// <typeparam name="T"></typeparam>
+    public struct ItemAndCount<T>
+    {
+        internal ItemAndCount(T item, long count)
+        {
+            Item = item;
+            Count = count;
+        }
+
+        /// <summary>
+        /// Item type used in Multiset
+        /// </summary>
+        public readonly T Item;
+
+        /// <summary>
+        /// Count of items with same value
+        /// </summary>
+        public readonly long Count;
     }
 }

@@ -24,21 +24,27 @@ namespace Microsoft.StreamProcessing.Aggregates
         public Expression<Func<SortedMultiSet<T>>> InitialState() => initialState;
 
         private static readonly Expression<Func<SortedMultiSet<T>, long, T, SortedMultiSet<T>>> acc
-            = (set, timestamp, input) => set.Add(input);
+            = (set, timestamp, input) => Apply(set, s => s.Add(input));
         public Expression<Func<SortedMultiSet<T>, long, T, SortedMultiSet<T>>> Accumulate() => acc;
 
         private static readonly Expression<Func<SortedMultiSet<T>, long, T, SortedMultiSet<T>>> dec
-            = (set, timestamp, input) => set.Remove(input);
+            = (set, timestamp, input) => Apply(set, s => s.Remove(input));
         public Expression<Func<SortedMultiSet<T>, long, T, SortedMultiSet<T>>> Deaccumulate() => dec;
 
         private static readonly Expression<Func<SortedMultiSet<T>, SortedMultiSet<T>, SortedMultiSet<T>>> diff
-            = (leftSet, rightSet) => leftSet.RemoveAll(rightSet);
+            = (leftSet, rightSet) => Apply(leftSet, s => s.RemoveAll(rightSet));
         public Expression<Func<SortedMultiSet<T>, SortedMultiSet<T>, SortedMultiSet<T>>> Difference() => diff;
 
         private static readonly Expression<Func<SortedMultiSet<T>, SortedMultiSet<T>, SortedMultiSet<T>>> sum
-            = (leftSet, rightSet) => leftSet.AddAll(rightSet);
+            = (leftSet, rightSet) => Apply(leftSet, s => s.AddAll(rightSet));
         public Expression<Func<SortedMultiSet<T>, SortedMultiSet<T>, SortedMultiSet<T>>> Sum() => sum;
 
         public abstract Expression<Func<SortedMultiSet<T>, R>> ComputeResult();
+
+        private static SortedMultiSet<T> Apply(SortedMultiSet<T> state, Action<SortedMultiSet<T>> op)
+        {
+            op(state);
+            return state;
+        }
     }
 }

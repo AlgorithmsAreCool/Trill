@@ -29,22 +29,28 @@ namespace Microsoft.StreamProcessing.Aggregates
         public Expression<Func<MinMaxState<T>>> InitialState() => initialState;
 
         private static readonly Expression<Func<MinMaxState<T>, long, T, MinMaxState<T>>> acc
-            = (set, timestamp, input) => new MinMaxState<T> { savedValues = set.savedValues.Add(input) };
+            = (set, timestamp, input) => Apply(set, s => s.savedValues.Add(input));
         public Expression<Func<MinMaxState<T>, long, T, MinMaxState<T>>> Accumulate() => acc;
 
         private static readonly Expression<Func<MinMaxState<T>, long, T, MinMaxState<T>>> dec
-            = (set, timestamp, input) => new MinMaxState<T> { savedValues = set.savedValues.Remove(input) };
+            = (set, timestamp, input) => Apply(set, s => s.savedValues.Remove(input));
         public Expression<Func<MinMaxState<T>, long, T, MinMaxState<T>>> Deaccumulate() => dec;
 
         private static readonly Expression<Func<MinMaxState<T>, MinMaxState<T>, MinMaxState<T>>> diff
-            = (leftSet, rightSet) => new MinMaxState<T> { savedValues = leftSet.savedValues.RemoveAll(rightSet.savedValues) };
+            = (leftSet, rightSet) => Apply(leftSet, s => s.savedValues.RemoveAll(rightSet.savedValues));
         public Expression<Func<MinMaxState<T>, MinMaxState<T>, MinMaxState<T>>> Difference() => diff;
 
         private static readonly Expression<Func<MinMaxState<T>, MinMaxState<T>, MinMaxState<T>>> sum
-            = (leftSet, rightSet) => new MinMaxState<T> { savedValues = leftSet.savedValues.AddAll(rightSet.savedValues) };
+            = (leftSet, rightSet) => Apply(leftSet, s => s.savedValues.AddAll(rightSet.savedValues));
         public Expression<Func<MinMaxState<T>, MinMaxState<T>, MinMaxState<T>>> Sum() => sum;
 
         public abstract Expression<Func<MinMaxState<T>, T>> ComputeResult();
+
+        private static MinMaxState<T> Apply(MinMaxState<T> state, Action<MinMaxState<T>> op)
+        {
+            op(state);
+            return state;
+        }
     }
 
     internal sealed class MaxAggregate<T> : MinMaxAggregateBase<T>

@@ -6,27 +6,37 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics.Contracts;
 using System.Linq.Expressions;
+using Microsoft.StreamProcessing.Internal;
 
 namespace Microsoft.StreamProcessing.Aggregates
 {
-    internal sealed class TopKAggregate<T> : SortedMultisetAggregateBase<T, List<RankedEvent<T>>>
+    internal sealed class TopKAggregate<T> : ISummableAggregate<T, ITopKState<T>, List<RankedEvent<T>>>
     {
         private readonly Comparison<T> compiledRankComparer;
         private readonly int k;
 
-        public TopKAggregate(int k, QueryContainer container) : this(k, ComparerExpression<T>.Default, container) { }
+        public TopKAggregate(int k, IComparerExpression<T> rankComparer, QueryContainer container, bool isHoppingWindow)
+            : this(k, rankComparer, ComparerExpression<T>.Default, container, isHoppingWindow) { }
 
-        public TopKAggregate(int k, IComparerExpression<T> rankComparer, QueryContainer container)
-            : this(k, rankComparer, ComparerExpression<T>.Default, container) { }
-
-        public TopKAggregate(int k, IComparerExpression<T> rankComparer, IComparerExpression<T> overallComparer, QueryContainer container)
-            : base(ThenOrderBy(Reverse(rankComparer), overallComparer), container)
+        public TopKAggregate(int k, IComparerExpression<T> rankComparer, IComparerExpression<T> overallComparer,
+            QueryContainer container, bool isHoppingWindow)
         {
             Contract.Requires(rankComparer != null);
             Contract.Requires(overallComparer != null);
             Contract.Requires(k > 0);
             this.compiledRankComparer = Reverse(rankComparer).GetCompareExpr().Compile();
             this.k = k;
+
+            Expression<Func<Func<SortedDictionary<T, long>>, ITopKState<T>>> template;
+            if (isHoppingWindow)
+                template = (g) => new HoppingTopKState<T>(k, compiledRankComparer, g);
+            else
+                template = (g) => new SimpleTopKState<T>(g);
+
+            var combinedComparer = ThenOrderBy(Reverse(rankComparer), overallComparer);
+            var generator = combinedComparer.CreateSortedDictionaryGenerator<T, long>(container);
+            var replaced = template.ReplaceParametersInBody(generator);
+            initialState = Expression.Lambda<Func<ITopKState<T>>>(replaced);
         }
 
         private static IComparerExpression<T> Reverse(IComparerExpression<T> comparer)
@@ -53,10 +63,11 @@ namespace Microsoft.StreamProcessing.Aggregates
             return new ComparerExpression<T>(newExpression);
         }
 
-        public override Expression<Func<SortedMultiSet<T>, List<RankedEvent<T>>>> ComputeResult() => set => GetTopK(set);
+        public Expression<Func<ITopKState<T>, List<RankedEvent<T>>>> ComputeResult() => set => GetTopK(set);
 
-        private List<RankedEvent<T>> GetTopK(SortedMultiSet<T> set)
+        private List<RankedEvent<T>> GetTopK(ITopKState<T> state)
         {
+            var set = state.GetSortedValues();
             int count = (int)Math.Min(this.k, set.TotalCount);
             var result = new List<RankedEvent<T>>(count);
             int nextRank = 1;
@@ -82,5 +93,30 @@ namespace Microsoft.StreamProcessing.Aggregates
 
             return result;
         }
+
+        internal static ITopKState<T> Apply(ITopKState<T> state, Action<ITopKState<T>> op)
+        {
+            op(state);
+            return state;
+        }
+
+        private readonly Expression<Func<ITopKState<T>>> initialState;
+        public Expression<Func<ITopKState<T>>> InitialState() => initialState;
+
+        private static readonly Expression<Func<ITopKState<T>, long, T, ITopKState<T>>> acc
+            = (state, timestamp, input) => Apply(state, s => s.Add(input, timestamp));
+        public Expression<Func<ITopKState<T>, long, T, ITopKState<T>>> Accumulate() => acc;
+
+        private static readonly Expression<Func<ITopKState<T>, long, T, ITopKState<T>>> dec
+            = (state, timestamp, input) => Apply(state, s => s.Remove(input, timestamp));
+        public Expression<Func<ITopKState<T>, long, T, ITopKState<T>>> Deaccumulate() => dec;
+
+        private static readonly Expression<Func<ITopKState<T>, ITopKState<T>, ITopKState<T>>> diff
+            = (leftState, rightState) => Apply(leftState, s => s.RemoveAll(rightState));
+        public Expression<Func<ITopKState<T>, ITopKState<T>, ITopKState<T>>> Difference() => diff;
+
+        private static readonly Expression<Func<ITopKState<T>, ITopKState<T>, ITopKState<T>>> sum
+            = (leftState, rightState) => Apply(leftState, s => s.AddAll(rightState));
+        public Expression<Func<ITopKState<T>, ITopKState<T>, ITopKState<T>>> Sum() => sum;
     }
 }
